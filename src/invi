@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+
+import sqlite3
+import sys
+import os
+import shutil
+from datetime import datetime
+import argparse
+
+DATABASE = "inventory.db"
+LOGFILE = "inventory.log"
+BACKUP_DIR = "backup"
+
+
+def init_db():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            quantity INTEGER NOT NULL,
+            price REAL NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            sale_price REAL NOT NULL,
+            date TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            purchase_price REAL NOT NULL,
+            date TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def log_action(action):
+    with open(LOGFILE, "a") as f:
+        f.write(f"{datetime.now()} - {action}\n")
+
+
+def add_item(name, quantity, price):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO items (name, quantity, price) VALUES (?, ?, ?)",
+            (name, quantity, price),
+        )
+        conn.commit()
+        log_action(f"Added Item: {name} (Qty: {quantity}, Price: {price})")
+        print("Item Added Successfully!")
+    except sqlite3.IntegrityError:
+        print("Item Already Exists!")
+    conn.close()
+
+
+def update_item(name, quantity, price):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE items SET quantity=?, price=? WHERE name=?", (quantity, price, name)
+    )
+    if cursor.rowcount > 0:
+        conn.commit()
+        log_action(f"Updated Item: {name} (New Qty: {quantity}, New Price: {price})")
+        print("Item Updated Successfully!")
+    else:
+        print("Item Not Found!")
+    conn.close()
+
+
+def delete_item(name):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM items WHERE name=?", (name,))
+    if cursor.rowcount > 0:
+        conn.commit()
+        log_action(f"Deleted Item: {name}")
+        print("Item Deleted Successfully!")
+    else:
+        print("Item Not Found!")
+    conn.close()
+
+
+def view_inventory():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM items")
+    items = cursor.fetchall()
+    print("\nInventory List:")
+    for item in items:
+        print(f"{item[0]}. {item[1]} - {item[2]} units @ INR {item[3]:.2f}")
+    conn.close()
+
+
+def track_sale(name, quantity, sale_price):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT quantity FROM items WHERE name=?", (name,))
+    stock = cursor.fetchone()
+    if not stock:
+        print("Item Not Found!")
+        return
+    if stock[0] < quantity:
+        print("Not Enough Stock!")
+        return
+    cursor.execute(
+        "UPDATE items SET quantity = quantity - ? WHERE name=?", (quantity, name)
+    )
+    cursor.execute(
+        "INSERT INTO sales (item_name, quantity, sale_price, date) VALUES (?, ?, ?, ?)",
+        (name, quantity, sale_price, datetime.now().strftime("%Y-%m-%d")),
+    )
+    conn.commit()
+    log_action(f"Sale: {quantity} {name} @ INR {sale_price}")
+    print("Sale Recorded Successfully!")
+    conn.close()
+
+
+def generate_sales_report():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT sales.item_name, SUM(sales.quantity), SUM(sales.quantity * sales.sale_price),
+               items.price, SUM(sales.quantity * (sales.sale_price - items.price))
+        FROM sales
+        JOIN items ON sales.item_name = items.name
+        GROUP BY sales.item_name
+    """)
+    sales = cursor.fetchall()
+    print("\nSales Report:")
+    for sale in sales:
+        print(
+            f"{sale[0]} - Sold: {sale[1]} units, Revenue: INR {sale[2]:.2f}, Profit: INR {sale[4]:.2f}"
+        )
+    conn.close()
+
+
+def backup_db():
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR)
+    shutil.copy(
+        DATABASE,
+        os.path.join(
+            BACKUP_DIR, f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        ),
+    )
+    print("Database Backup Completed!")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Inventory Management System")
+    subparsers = parser.add_subparsers(dest="command")
+
+    parser_add = subparsers.add_parser("add", help="Add a new item")
+    parser_add.add_argument("name")
+    parser_add.add_argument("quantity", type=int)
+    parser_add.add_argument("price", type=float)
+
+    parser_update = subparsers.add_parser("update", help="Update an item")
+    parser_update.add_argument("name")
+    parser_update.add_argument("quantity", type=int)
+    parser_update.add_argument("price", type=float)
+
+    parser_delete = subparsers.add_parser("delete", help="Delete an item")
+    parser_delete.add_argument("name")
+
+    subparsers.add_parser("view", help="View inventory")
+
+    parser_sale = subparsers.add_parser("sale", help="Record a sale")
+    parser_sale.add_argument("name")
+    parser_sale.add_argument("quantity", type=int)
+    parser_sale.add_argument("sale_price", type=float)
+
+    subparsers.add_parser("report", help="Generate sales report")
+    subparsers.add_parser("backup", help="Backup the database")
+
+    args = parser.parse_args()
+
+    if args.command == "add":
+        add_item(args.name, args.quantity, args.price)
+    elif args.command == "update":
+        update_item(args.name, args.quantity, args.price)
+    elif args.command == "delete":
+        delete_item(args.name)
+    elif args.command == "view":
+        view_inventory()
+    elif args.command == "sale":
+        track_sale(args.name, args.quantity, args.sale_price)
+    elif args.command == "report":
+        generate_sales_report()
+    elif args.command == "backup":
+        backup_db()
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    init_db()
+    main()
+
