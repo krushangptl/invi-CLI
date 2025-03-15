@@ -11,6 +11,42 @@ Inventory CLI is a simple command-line inventory management system written in Py
 - Generate sales reports (including profit calculations)
 - Backup the database
 
+## Prerequisites
+
+Before running the tool, ensure that your system meets the following requirements:
+
+### Python 3
+
+This script requires Python 3. You can check if Python is installed by running:
+
+```
+python3 --version
+```
+
+If not installed, follow the instructions for your OS:
+
+Ubuntu/Debian:
+```
+sudo apt update && sudo apt install python3
+```
+macOS (Homebrew):
+```
+brew install python3
+```
+Windows:
+
+Download and install from python.org
+
+Or use Windows Subsystem for Linux (WSL)
+
+### Packages
+
+Install Required Packages using `pip`.
+
+```
+pip install sqlite3 argparse shutil
+```
+
 ## Installation
 Ensure you have Python 3 installed on your system. Then, clone the repository and install the required dependencies (if any).
 
